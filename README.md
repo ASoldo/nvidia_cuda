@@ -112,9 +112,13 @@ print(resp.json())
 Test with [`grpcurl`](https://github.com/fullstorydev/grpcurl):
 
 ```bash
+
+# from ../nvidia_cuda/proto
 grpcurl -plaintext \
-  -d '{"a":2.0,"x":[0,1,2,3,4],"y":[0.5,0.5,0.5,0.5,0.5]}' \
+  -import-path . -proto saxpy.proto \
+  -d '{"a":2,"x":[0,1,2,3,4],"y":[0.5,0.5,0.5,0.5,0.5]}' \
   127.0.0.1:50051 saxpy.v1.SaxpyService/Compute
+
 ```
 
 ### Python gRPC quickstart
