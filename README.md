@@ -47,16 +47,16 @@ The service starts on `127.0.0.1:8080` by default. You can exercise the endpoint
 curl http://127.0.0.1:8080/healthz
 
 # SAXPY request (arrays must share length)
-curl -X POST \
+curl -s -X POST http://127.0.0.1:8080/saxpy \
   -H 'Content-Type: application/json' \
-  -d '{"a": 2.5, "x": [1.0, 2.0, 3.0], "y": [4.0, 5.0, 6.0]}' \
+  -d '{"a":2.0,"x":[0,1,2,3,4],"y":[0.5,0.5,0.5,0.5,0.5]}' \
   http://127.0.0.1:8080/saxpy
 ```
 
 Sample response:
 
 ```json
-[6.5, 10.0, 13.5]
+[0.5,2.5,4.5,6.5,8.5]
 ```
 
 ---
