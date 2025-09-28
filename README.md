@@ -10,6 +10,8 @@ This project demonstrates how to run a simple CUDA kernel (`saxpy`) from Rust us
 * **OS**: Arch Linux
 * **Rust**: Installed via [rustup](https://rustup.rs/)
 * **CUDA Toolkit**: Version 13.0.1 (installed manually)
+* **Nsight Systems**: Version 2025.3.2
+* **Nsight Compute**: Version 2025.3.1
 
 ---
 
