@@ -282,3 +282,96 @@ Processing [saxpy-nvtx.sqlite] with [/opt/nsight-systems/2025.3.2/host-linux-x64
 SKIPPED: saxpy-nvtx.sqlite does not contain syscall data.
 
 ```
+
+## NCU Output
+
+```
+==PROF== Connected to process 1574528 (.../nvidia_cuda/target/release/nvidia_cuda)
+==PROF== Profiling "saxpy" - 0: 0%....50%....100% - 8 passes
+SAXPY complete on 1000000 elements. Example out[12345] = 30862.5
+==PROF== Disconnected from process 1574528
+[1574528] nvidia_cuda@127.0.0.1
+  saxpy (977, 1, 1)x(1024, 1, 1), Context 1, Stream 13, Device 0, CC 8.6
+    Section: GPU Speed Of Light Throughput
+    ----------------------- ----------- ------------
+    Metric Name             Metric Unit Metric Value
+    ----------------------- ----------- ------------
+    DRAM Frequency                  Ghz         6.79
+    SM Frequency                    Ghz         1.50
+    Elapsed Cycles                cycle       46,791
+    Memory Throughput                 %        86.67
+    DRAM Throughput                   %        86.67
+    Duration                         us        31.23
+    L1/TEX Cache Throughput           %        15.28
+    L2 Cache Throughput               %        26.82
+    SM Active Cycles              cycle    41,255.37
+    Compute (SM) Throughput           %        11.70
+    ----------------------- ----------- ------------
+
+    INF   This workload is utilizing greater than 80.0% of the available compute or memory performance of the device.   
+          To further improve performance, work will likely need to be shifted from the most utilized to another unit.   
+          Start by analyzing DRAM in the Memory Workload Analysis section.                                              
+
+    Section: Launch Statistics
+    -------------------------------- --------------- ---------------
+    Metric Name                          Metric Unit    Metric Value
+    -------------------------------- --------------- ---------------
+    Block Size                                                 1,024
+    Function Cache Configuration                     CachePreferNone
+    Grid Size                                                    977
+    Registers Per Thread             register/thread              16
+    Shared Memory Configuration Size           Kbyte            8.19
+    Driver Shared Memory Per Block       Kbyte/block            1.02
+    Dynamic Shared Memory Per Block       byte/block               0
+    Static Shared Memory Per Block        byte/block               0
+    # SMs                                         SM              46
+    Stack Size                                                 1,024
+    Threads                                   thread       1,000,448
+    # TPCs                                                        23
+    Enabled TPC IDs                                              all
+    Uses Green Context                                             0
+    Waves Per SM                                               21.24
+    -------------------------------- --------------- ---------------
+
+    Section: Occupancy
+    ------------------------------- ----------- ------------
+    Metric Name                     Metric Unit Metric Value
+    ------------------------------- ----------- ------------
+    Block Limit SM                        block           16
+    Block Limit Registers                 block            4
+    Block Limit Shared Mem                block            8
+    Block Limit Warps                     block            1
+    Theoretical Active Warps per SM        warp           32
+    Theoretical Occupancy                     %        66.67
+    Achieved Occupancy                        %        51.94
+    Achieved Active Warps Per SM           warp        24.93
+    ------------------------------- ----------- ------------
+
+    OPT   Est. Local Speedup: 22.09%                                                                                    
+          The difference between calculated theoretical (66.7%) and measured achieved occupancy (51.9%) can be the      
+          result of warp scheduling overheads or workload imbalances during the kernel execution. Load imbalances can   
+          occur between warps within a block as well as across blocks of the same kernel. See the CUDA Best Practices   
+          Guide (https://docs.nvidia.com/cuda/cuda-c-best-practices-guide/index.html#occupancy) for more details on     
+          optimizing occupancy.                                                                                         
+    ----- --------------------------------------------------------------------------------------------------------------
+    OPT   Est. Local Speedup: 33.33%                                                                                    
+          The 8.00 theoretical warps per scheduler this kernel can issue according to its occupancy are below the       
+          hardware maximum of 12. This kernel's theoretical occupancy (66.7%) is limited by the number of warps within  
+          each block.                                                                                                   
+
+    Section: GPU and Memory Workload Distribution
+    -------------------------- ----------- ------------
+    Metric Name                Metric Unit Metric Value
+    -------------------------- ----------- ------------
+    Average DRAM Active Cycles       cycle      183,704
+    Total DRAM Elapsed Cycles        cycle    1,695,744
+    Average L1 Active Cycles         cycle    41,255.37
+    Total L1 Elapsed Cycles          cycle    2,137,302
+    Average L2 Active Cycles         cycle    41,188.62
+    Total L2 Elapsed Cycles          cycle    1,407,648
+    Average SM Active Cycles         cycle    41,255.37
+    Total SM Elapsed Cycles          cycle    2,137,302
+    Average SMSP Active Cycles       cycle    38,970.04
+    Total SMSP Elapsed Cycles        cycle    8,549,208
+    -------------------------- ----------- ------------
+```
