@@ -92,11 +92,15 @@ NVTX ranges wrap host-to-device copies, kernel execution, and device-to-host cop
 
 ```bash
 # Capture with Nsight Systems
-nsys profile -o saxpy-nvtx cargo run --release
-nsys stats saxpy-nvtx.nsys-rep
+nsys profile -o saxpy-http --trace=cuda,nvtx,osrt ./target/release/nvidia_cuda
+nsys stats saxpy-http.nsys-rep
 
 # Inspect kernel metrics with Nsight Compute
-ncu cargo run --release
+sudo ncu cargo run --release
+
+# or
+
+sudo ncu --target-processes all --set full ./target/release/nvidia_cuda
 ```
 
 Each command launches the microservice; invoke the `/saxpy` endpoint from another terminal while profiling is active.

@@ -3,8 +3,19 @@ use std::sync::Arc;
 use anyhow::{Context, Result, anyhow};
 use cudarc::driver::{CudaContext, CudaModule, CudaSlice, LaunchConfig, PushKernelArg};
 use cudarc::nvrtc::compile_ptx;
-use nvtx::{range_pop, range_push};
 use once_cell::sync::Lazy;
+use uuid::Uuid;
+
+#[inline(always)]
+fn nvtx_scoped<S, F, T>(label: S, f: F) -> T
+where
+    S: Into<String>,
+    F: FnOnce() -> T,
+{
+    let label = label.into();
+    let _guard = nvtx::range!("{}", &label);
+    f()
+}
 
 const KERNEL: &str = r#"
 extern "C" __global__
@@ -26,12 +37,11 @@ pub struct GpuState {
 }
 
 static GPU: Lazy<Result<GpuState>> = Lazy::new(|| {
+    let _g = nvtx::range!("cuda init");
     let ctx = CudaContext::new(0)?;
-
     let ptx = compile_ptx(KERNEL)?;
     let module = ctx.load_module(ptx)?;
     let _ = module.load_function("saxpy")?;
-
     Ok(GpuState {
         ctx,
         module,
@@ -39,17 +49,8 @@ static GPU: Lazy<Result<GpuState>> = Lazy::new(|| {
     })
 });
 
-macro_rules! nvtx_scope {
-    ($label:literal, $body:expr) => {{
-        range_push!($label);
-        let result = ($body)();
-        range_pop!();
-        result
-    }};
-}
-
 pub fn ensure_ready() -> Result<&'static GpuState> {
-    gpu_state()
+    GPU.as_ref().map_err(|e| anyhow!("{e:#}"))
 }
 
 pub fn saxpy(a: f32, x: &[f32], y: &[f32]) -> Result<Vec<f32>> {
@@ -73,23 +74,19 @@ pub fn saxpy_with_state(state: &GpuState, a: f32, x: &[f32], y: &[f32]) -> Resul
         .load_function(state.func_name)
         .context("load saxpy kernel")?;
 
-    let mut dx: CudaSlice<f32> = stream
-        .alloc_zeros(n)
-        .context("allocate device buffer for x")?;
-    let mut dy: CudaSlice<f32> = stream
-        .alloc_zeros(n)
-        .context("allocate device buffer for y")?;
-    let mut dout: CudaSlice<f32> = stream
-        .alloc_zeros(n)
-        .context("allocate device buffer for output")?;
+    let mut dx: CudaSlice<f32> = stream.alloc_zeros(n).context("alloc device x")?;
+    let mut dy: CudaSlice<f32> = stream.alloc_zeros(n).context("alloc device y")?;
+    let mut dout: CudaSlice<f32> = stream.alloc_zeros(n).context("alloc device out")?;
 
-    nvtx_scope!("H2D copies", || -> Result<()> {
+    let trace_id = Uuid::new_v4();
+
+    nvtx_scoped(format!("H2D copies {}", trace_id), || -> Result<()> {
         stream.memcpy_htod(x, &mut dx).context("copy x to device")?;
         stream.memcpy_htod(y, &mut dy).context("copy y to device")?;
         Ok(())
     })?;
 
-    nvtx_scope!("saxpy kernel", || -> Result<()> {
+    nvtx_scoped(format!("saxpy kernel {}", trace_id), || -> Result<()> {
         let cfg = LaunchConfig::for_num_elems(n as u32);
         unsafe {
             stream
@@ -106,18 +103,14 @@ pub fn saxpy_with_state(state: &GpuState, a: f32, x: &[f32], y: &[f32]) -> Resul
     })?;
 
     let mut out = vec![0f32; n];
-    nvtx_scope!("D2H copy", || -> Result<()> {
+    nvtx_scoped(format!("D2H copy {}", trace_id), || -> Result<()> {
         stream
             .memcpy_dtoh(&dout, &mut out)
-            .context("copy output to host")?;
+            .context("copy out to host")?;
         Ok(())
     })?;
 
     stream.synchronize().context("synchronize CUDA stream")?;
 
-    Ok(out)
-}
-
-fn gpu_state() -> Result<&'static GpuState> {
-    GPU.as_ref().map_err(|e| anyhow!("{e:#}"))
+    Ok(out) // ← you forgot this, which is why E0308
 }
