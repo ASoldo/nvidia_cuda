@@ -1,4 +1,6 @@
-use actix_web::{App, HttpServer, rt};
+use std::io::{Error as IoError, ErrorKind};
+
+use actix_web::{App, HttpServer};
 
 use nvidia_cuda::{gpu, grpc, http::server};
 
@@ -21,13 +23,7 @@ async fn main() -> std::io::Result<()> {
     };
     println!("gRPC listening on {grpc_addr}");
 
-    let grpc_handle = rt::spawn(async move {
-        if let Err(e) = grpc::serve(grpc_addr).await {
-            eprintln!("gRPC server exited: {e:#}");
-        }
-    });
-
-    let server = HttpServer::new(|| {
+    let http_future = HttpServer::new(|| {
         App::new()
             .app_data(server::json_config())
             .configure(server::configure_services)
@@ -35,14 +31,11 @@ async fn main() -> std::io::Result<()> {
     .bind((host.as_str(), port))?
     .run();
 
-    match server.await {
-        Ok(()) => {
-            let _ = grpc_handle.abort();
-            Ok(())
-        }
-        Err(e) => {
-            let _ = grpc_handle.abort();
-            Err(e)
-        }
-    }
+    let grpc_future = async move {
+        grpc::serve(grpc_addr)
+            .await
+            .map_err(|e| IoError::new(ErrorKind::Other, e))
+    };
+
+    tokio::try_join!(http_future, grpc_future).map(|_| ())
 }
