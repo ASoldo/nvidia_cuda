@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package saxpy.v1;
+
+service SaxpyService {
+  rpc Compute (SaxpyRequest) returns (SaxpyResponse);
+}
+
+message SaxpyRequest {
+  float a = 1;
+  repeated float x = 2;
+  repeated float y = 3;
+}
+
+message SaxpyResponse {
+  repeated float out = 1;
+}

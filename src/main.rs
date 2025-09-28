@@ -1,6 +1,6 @@
-use actix_web::{App, HttpServer};
+use actix_web::{App, HttpServer, rt};
 
-use nvidia_cuda::{gpu, http::server};
+use nvidia_cuda::{gpu, grpc, http::server};
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -10,14 +10,39 @@ async fn main() -> std::io::Result<()> {
     }
 
     let (host, port) = server::bind_address();
-    println!("Listening on {host}:{port}");
+    println!("HTTP listening on {host}:{port}");
 
-    HttpServer::new(|| {
+    let grpc_addr = match grpc::bind_address() {
+        Ok(addr) => addr,
+        Err(e) => {
+            eprintln!("Invalid gRPC bind address: {e:#}");
+            std::process::exit(1);
+        }
+    };
+    println!("gRPC listening on {grpc_addr}");
+
+    let grpc_handle = rt::spawn(async move {
+        if let Err(e) = grpc::serve(grpc_addr).await {
+            eprintln!("gRPC server exited: {e:#}");
+        }
+    });
+
+    let server = HttpServer::new(|| {
         App::new()
             .app_data(server::json_config())
             .configure(server::configure_services)
     })
     .bind((host.as_str(), port))?
-    .run()
-    .await
+    .run();
+
+    match server.await {
+        Ok(()) => {
+            let _ = grpc_handle.abort();
+            Ok(())
+        }
+        Err(e) => {
+            let _ = grpc_handle.abort();
+            Err(e)
+        }
+    }
 }

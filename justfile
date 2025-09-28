@@ -2,6 +2,8 @@ set shell := ["bash", "-lc"]
 
 host := "127.0.0.1"
 port := "8080"
+grpc_host := "127.0.0.1"
+grpc_port := "50051"
 
 # Default target prints available recipes.
 default:
@@ -17,11 +19,11 @@ build-release: fmt check test
 
 # Run the service with optional host/port overrides.
 run: fmt check test
-    NVIDIA_CUDA_HOST={{host}} NVIDIA_CUDA_PORT={{port}} cargo run
+    NVIDIA_CUDA_HOST={{host}} NVIDIA_CUDA_PORT={{port}} NVIDIA_CUDA_GRPC_HOST={{grpc_host}} NVIDIA_CUDA_GRPC_PORT={{grpc_port}} cargo run
 
 # Run the service in release mode.
 run-release: fmt check test
-    NVIDIA_CUDA_HOST={{host}} NVIDIA_CUDA_PORT={{port}} cargo run --release
+    NVIDIA_CUDA_HOST={{host}} NVIDIA_CUDA_PORT={{port}} NVIDIA_CUDA_GRPC_HOST={{grpc_host}} NVIDIA_CUDA_GRPC_PORT={{grpc_port}} cargo run --release
 
 # Execute the test suite (skips silently if CUDA unavailable).
 test:

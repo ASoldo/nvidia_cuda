@@ -37,10 +37,12 @@ Persist the `PATH` exports in your shell profile if you rely on them frequently.
 ```bash
 git clone https://github.com/asoldo/nvidia_cuda
 cd nvidia_cuda
-NVIDIA_CUDA_HOST=0.0.0.0 NVIDIA_CUDA_PORT=8080 cargo run --release
+NVIDIA_CUDA_HOST=0.0.0.0 NVIDIA_CUDA_PORT=8080 \\
+NVIDIA_CUDA_GRPC_HOST=0.0.0.0 NVIDIA_CUDA_GRPC_PORT=50051 \\
+cargo run --release
 ```
 
-The service starts on `127.0.0.1:8080` by default. You can exercise the endpoints with `curl`:
+The HTTP surface defaults to `127.0.0.1:8080` and the gRPC listener to `127.0.0.1:50051`. Exercise the REST endpoints with `curl`:
 
 ```bash
 # Health probe
@@ -67,7 +69,7 @@ Sample response:
 | GET    | `/healthz`| Reports GPU initialization status |
 | POST   | `/saxpy`  | Runs SAXPY on supplied payload    |
 
-Set `NVIDIA_CUDA_HOST`/`NVIDIA_CUDA_PORT` environment variables to override the default bind address during deployment.
+Set `NVIDIA_CUDA_HOST`/`NVIDIA_CUDA_PORT` and `NVIDIA_CUDA_GRPC_HOST`/`NVIDIA_CUDA_GRPC_PORT` to override the default bind addresses during deployment.
 
 ### `/saxpy` payload schema
 
@@ -101,6 +103,44 @@ print(resp.json())
 
 ---
 
+## gRPC Surface
+
+- Proto definition: `proto/saxpy.proto`
+- Service: `saxpy.v1.SaxpyService`
+- RPC: `Compute(SaxpyRequest) -> SaxpyResponse`
+
+Test with [`grpcurl`](https://github.com/fullstorydev/grpcurl):
+
+```bash
+grpcurl -plaintext \
+  -d '{"a":2.0,"x":[0,1,2,3,4],"y":[0.5,0.5,0.5,0.5,0.5]}' \
+  127.0.0.1:50051 saxpy.v1.SaxpyService/Compute
+```
+
+### Python gRPC quickstart
+
+Generate a client with `grpcio-tools`:
+
+```bash
+python -m grpc_tools.protoc -I proto --python_out=. --grpc_python_out=. proto/saxpy.proto
+```
+
+Invoke the service:
+
+```python
+import grpc
+import saxpy_pb2 as pb
+import saxpy_pb2_grpc as pb_grpc
+
+channel = grpc.insecure_channel("127.0.0.1:50051")
+stub = pb_grpc.SaxpyServiceStub(channel)
+
+resp = stub.Compute(pb.SaxpyRequest(a=2.0, x=[0, 1, 2, 3, 4], y=[0.5] * 5))
+print(list(resp.out))
+```
+
+---
+
 ## Profiling (optional)
 
 NVTX ranges wrap host-to-device copies, kernel execution, and device-to-host copies. That makes Nsight timelines easy to interpret.
@@ -127,12 +167,14 @@ Each command launches the microservice; invoke the `/saxpy` endpoint from anothe
 ```
 src/
   gpu/          // CUDA initialization, NVTX helpers, SAXPY execution
+  grpc/         // Tonic server wiring and env helpers
   http/
     handlers.rs // Actix handlers
     models.rs   // Request data structures
     server.rs   // Actix configuration helpers
   lib.rs        // Library exports
   main.rs       // Binary entry point wiring HTTP + GPU layers
+proto/          // Protobuf definitions shared with clients
 ```
 
 ---
