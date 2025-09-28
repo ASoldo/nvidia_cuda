@@ -1,9 +1,14 @@
+use actix_web::{App, HttpResponse, HttpServer, Responder, get, post, web};
 use anyhow::Result;
-use cudarc::driver::PushKernelArg;
-use cudarc::driver::{CudaContext, CudaSlice, LaunchConfig};
-use cudarc::nvrtc::compile_ptx;
 use nvtx::{range_pop, range_push};
+use once_cell::sync::Lazy;
+use serde::Deserialize;
+use std::sync::Arc;
 
+use cudarc::driver::{CudaContext, CudaModule, CudaSlice, LaunchConfig, PushKernelArg};
+use cudarc::nvrtc::compile_ptx;
+
+// -------- CUDA kernel (same as your demo) --------
 const KERNEL: &str = r#"
 extern "C" __global__
 void saxpy(float a, const float* __restrict__ x,
@@ -17,59 +22,153 @@ void saxpy(float a, const float* __restrict__ x,
 }
 "#;
 
-fn main() -> Result<()> {
-    let ctx = CudaContext::new(0)?;
-    let stream = ctx.new_stream()?;
+// -------- App state: initialized once and reused --------
+struct GpuState {
+    ctx: Arc<CudaContext>,
+    module: Arc<CudaModule>,
+    // cache the function handle too
+    func_name: &'static str,
+}
 
+static GPU: Lazy<Result<GpuState>> = Lazy::new(|| {
+    // 1) Init device/context
+    let ctx = CudaContext::new(0)?;
+
+    // 2) Compile PTX and load module once
     let ptx = compile_ptx(KERNEL)?;
     let module = ctx.load_module(ptx)?;
-    let func = module.load_function("saxpy")?;
+    // probe the symbol now so we fail early if missing
+    let _ = module.load_function("saxpy")?;
 
-    let n: usize = 1_000_000;
-    let a: f32 = 2.0;
-    let host_x: Vec<f32> = (0..n).map(|i| i as f32).collect();
-    let host_y: Vec<f32> = (0..n).map(|i| (i as f32) * 0.5).collect();
+    Ok(GpuState {
+        ctx,
+        module,
+        func_name: "saxpy",
+    })
+});
 
-    let mut dev_x: CudaSlice<f32> = stream.alloc_zeros(n)?;
-    let mut dev_y: CudaSlice<f32> = stream.alloc_zeros(n)?;
-    let mut dev_out: CudaSlice<f32> = stream.alloc_zeros(n)?;
+// -------- Payloads --------
+#[derive(Deserialize)]
+struct SaxpyInput {
+    a: f32,
+    x: Vec<f32>,
+    y: Vec<f32>,
+}
+
+// -------- Handlers --------
+#[post("/saxpy")]
+async fn saxpy_api(body: web::Json<SaxpyInput>) -> impl Responder {
+    let state = match &*GPU {
+        Ok(s) => s,
+        Err(e) => {
+            return HttpResponse::ServiceUnavailable().body(format!("GPU init failed: {e:#}"));
+        }
+    };
+
+    if body.x.len() != body.y.len() {
+        return HttpResponse::BadRequest().body("x and y must be same length");
+    }
+    let n = body.x.len();
+    if n == 0 {
+        return HttpResponse::Ok().json(Vec::<f32>::new());
+    }
+
+    // Per-request CUDA stream
+    let stream = match state.ctx.new_stream() {
+        Ok(s) => s,
+        Err(e) => return HttpResponse::InternalServerError().body(format!("stream: {e:#}")),
+    };
+
+    // Kernel handle from preloaded module
+    let func = match state.module.load_function(state.func_name) {
+        Ok(f) => f,
+        Err(e) => return HttpResponse::InternalServerError().body(format!("function: {e:#}")),
+    };
+
+    // Device buffers
+    let mut dx: CudaSlice<f32> = match stream.alloc_zeros(n) {
+        Ok(b) => b,
+        Err(e) => return HttpResponse::InternalServerError().body(format!("alloc dx: {e:#}")),
+    };
+    let mut dy: CudaSlice<f32> = match stream.alloc_zeros(n) {
+        Ok(b) => b,
+        Err(e) => return HttpResponse::InternalServerError().body(format!("alloc dy: {e:#}")),
+    };
+    let mut dout: CudaSlice<f32> = match stream.alloc_zeros(n) {
+        Ok(b) => b,
+        Err(e) => return HttpResponse::InternalServerError().body(format!("alloc dout: {e:#}")),
+    };
+
+    // H2D copies
     range_push!("H2D copies");
-    stream.memcpy_htod(&host_x, &mut dev_x)?;
-    stream.memcpy_htod(&host_y, &mut dev_y)?;
+    if let Err(e) = stream.memcpy_htod(&body.x, &mut dx) {
+        range_pop!();
+        return HttpResponse::InternalServerError().body(format!("htod x: {e:#}"));
+    }
+    if let Err(e) = stream.memcpy_htod(&body.y, &mut dy) {
+        range_pop!();
+        return HttpResponse::InternalServerError().body(format!("htod y: {e:#}"));
+    }
     range_pop!();
 
+    // Kernel launch
     let cfg = LaunchConfig::for_num_elems(n as u32);
     range_push!("saxpy kernel");
     unsafe {
-        stream
+        if let Err(e) = stream
             .launch_builder(&func)
-            .arg(&a)
-            .arg(&dev_x)
-            .arg(&dev_y)
-            .arg(&mut dev_out)
+            .arg(&body.a)
+            .arg(&dx)
+            .arg(&dy)
+            .arg(&mut dout)
             .arg(&n)
-            .launch(cfg)?;
+            .launch(cfg)
+        {
+            range_pop!();
+            return HttpResponse::InternalServerError().body(format!("launch: {e:#}"));
+        }
     }
     range_pop!();
 
+    // D2H copy
     let mut out = vec![0f32; n];
-
     range_push!("D2H copy");
-    stream.memcpy_dtoh(&dev_out, &mut out)?;
+    if let Err(e) = stream.memcpy_dtoh(&dout, &mut out) {
+        range_pop!();
+        return HttpResponse::InternalServerError().body(format!("dtoh: {e:#}"));
+    }
     range_pop!();
 
-    stream.synchronize()?;
-
-    for &i in &[0usize, 1, 12345, n - 1] {
-        let expect = a * (i as f32) + (i as f32) * 0.5;
-        let got = out[i];
-        let diff = (got - expect).abs();
-        assert!(diff < 1e-5, "mismatch at {i}: got {got}, expected {expect}");
+    if let Err(e) = stream.synchronize() {
+        return HttpResponse::InternalServerError().body(format!("sync: {e:#}"));
     }
 
-    println!(
-        "SAXPY complete on {} elements. Example out[12345] = {}",
-        n, out[12345]
-    );
-    Ok(())
+    HttpResponse::Ok().json(out)
+}
+
+#[get("/healthz")]
+async fn healthz() -> impl Responder {
+    match &*GPU {
+        Ok(_) => HttpResponse::Ok().body("ok"),
+        Err(e) => HttpResponse::ServiceUnavailable().body(format!("gpu init failed: {e:#}")),
+    }
+}
+
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    // Fail fast on bad CUDA init
+    if let Err(e) = &*GPU {
+        eprintln!("GPU initialization failed: {e:#}");
+        std::process::exit(1);
+    }
+
+    HttpServer::new(|| {
+        App::new()
+            .app_data(web::JsonConfig::default().limit(8 * 1024 * 1024))
+            .service(healthz)
+            .service(saxpy_api)
+    })
+    .bind(("127.0.0.1", 8080))?
+    .run()
+    .await
 }
