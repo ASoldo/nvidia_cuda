@@ -37,7 +37,7 @@ Persist the `PATH` exports in your shell profile if you rely on them frequently.
 ```bash
 git clone https://github.com/asoldo/nvidia_cuda
 cd nvidia_cuda
-cargo run --release
+NVIDIA_CUDA_HOST=0.0.0.0 NVIDIA_CUDA_PORT=8080 cargo run --release
 ```
 
 The service starts on `127.0.0.1:8080` by default. You can exercise the endpoints with `curl`:
@@ -49,8 +49,7 @@ curl http://127.0.0.1:8080/healthz
 # SAXPY request (arrays must share length)
 curl -s -X POST http://127.0.0.1:8080/saxpy \
   -H 'Content-Type: application/json' \
-  -d '{"a":2.0,"x":[0,1,2,3,4],"y":[0.5,0.5,0.5,0.5,0.5]}' \
-  http://127.0.0.1:8080/saxpy
+  -d '{"a":2.0,"x":[0,1,2,3,4],"y":[0.5,0.5,0.5,0.5,0.5]}'
 ```
 
 Sample response:
@@ -68,6 +67,8 @@ Sample response:
 | GET    | `/healthz`| Reports GPU initialization status |
 | POST   | `/saxpy`  | Runs SAXPY on supplied payload    |
 
+Set `NVIDIA_CUDA_HOST`/`NVIDIA_CUDA_PORT` environment variables to override the default bind address during deployment.
+
 ### `/saxpy` payload schema
 
 ```json
@@ -83,6 +84,20 @@ Sample response:
 - Response: array of `f32` values representing the SAXPY result
 
 Error conditions return standard HTTP status codes (`400` for length mismatches, `503` if GPU init fails, `500` for runtime errors).
+
+### Python client quickstart
+
+```python
+import os
+import requests
+
+BASE_URL = os.environ.get("SAXPY_ENDPOINT", "http://127.0.0.1:8080")
+
+payload = {"a": 2.0, "x": [0, 1, 2, 3, 4], "y": [0.5] * 5}
+resp = requests.post(f"{BASE_URL}/saxpy", json=payload, timeout=10)
+resp.raise_for_status()
+print(resp.json())
+```
 
 ---
 

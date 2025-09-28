@@ -112,5 +112,27 @@ pub fn saxpy_with_state(state: &GpuState, a: f32, x: &[f32], y: &[f32]) -> Resul
 
     stream.synchronize().context("synchronize CUDA stream")?;
 
-    Ok(out) // ← you forgot this, which is why E0308
+    Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn saxpy_matches_cpu_reference() {
+        let state = match ensure_ready() {
+            Ok(state) => state,
+            Err(_) => return, // Skip when CUDA hardware isn't accessible in CI.
+        };
+
+        let a = 2.0_f32;
+        let x = vec![0.0_f32, 1.0, 2.0, 3.0];
+        let y = vec![0.5_f32; x.len()];
+
+        let gpu = saxpy_with_state(state, a, &x, &y).expect("GPU saxpy");
+        let cpu: Vec<f32> = x.iter().zip(&y).map(|(&xi, &yi)| a * xi + yi).collect();
+
+        assert_eq!(gpu, cpu);
+    }
 }

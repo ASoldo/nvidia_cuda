@@ -858,7 +858,6 @@ dependencies = [
  "cudarc",
  "nvtx",
  "once_cell",
- "scopeguard",
  "serde",
  "serde_json",
  "uuid",

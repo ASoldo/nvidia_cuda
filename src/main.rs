@@ -9,12 +9,15 @@ async fn main() -> std::io::Result<()> {
         std::process::exit(1);
     }
 
+    let (host, port) = server::bind_address();
+    println!("Listening on {host}:{port}");
+
     HttpServer::new(|| {
         App::new()
             .app_data(server::json_config())
             .configure(server::configure_services)
     })
-    .bind((server::DEFAULT_HOST, server::DEFAULT_PORT))?
+    .bind((host.as_str(), port))?
     .run()
     .await
 }
