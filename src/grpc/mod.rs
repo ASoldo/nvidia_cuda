@@ -1,7 +1,9 @@
 use std::{env, net::SocketAddr};
 
 use anyhow::{Context, Result};
-use tokio::signal;
+use std::future::Future;
+use tokio::net::TcpListener;
+use tokio_stream::wrappers::TcpListenerStream;
 use tonic::{Request, Response, Status, transport::Server};
 
 use crate::gpu;
@@ -30,17 +32,17 @@ pub fn bind_address() -> Result<SocketAddr> {
     Ok(addr)
 }
 
-pub async fn serve(addr: SocketAddr) -> Result<()> {
+pub async fn serve<S>(listener: TcpListener, shutdown: S) -> Result<()>
+where
+    S: Future<Output = ()> + Send + 'static,
+{
     let service = SaxpyServiceServer::new(SaxpyGrpc);
-    let shutdown = async {
-        if let Err(e) = signal::ctrl_c().await {
-            eprintln!("Failed to listen for shutdown signal: {e:#}");
-        }
-    };
 
     Server::builder()
         .add_service(service)
-        .serve_with_shutdown(addr, shutdown)
+        .serve_with_incoming_shutdown(TcpListenerStream::new(listener), async move {
+            shutdown.await;
+        })
         .await
         .context("run gRPC server")
 }
