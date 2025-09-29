@@ -37,5 +37,9 @@ async fn main() -> std::io::Result<()> {
             .map_err(|e| IoError::new(ErrorKind::Other, e))
     };
 
-    tokio::try_join!(http_future, grpc_future).map(|_| ())
+    match tokio::try_join!(http_future, grpc_future) {
+        Ok(_) => Ok(()),
+        Err(e) if e.kind() == ErrorKind::Interrupted => Ok(()),
+        Err(e) => Err(e),
+    }
 }
